@@ -19,7 +19,7 @@ namespace DXFParser
             var props = sections.GetType().GetProperties();
             foreach (var prop in props)
             {
-                if (prop.Name.Equals("HEADER"))
+                if (prop.Name.Equals(nameof(DXFObject.HEADER)))
                 {
                     var dict = new Dictionary<string, List<BaseProp>>();
                     var header = prop.GetValue(sections);
