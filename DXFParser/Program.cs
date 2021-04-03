@@ -21,7 +21,7 @@ namespace DXFParser
             {
                 if (prop.Name.Equals("HEADER"))
                 {
-                    var dict = new Dictionary<string, List<string>>();
+                    var dict = new Dictionary<string, List<BaseProp>>();
                     var header = prop.GetValue(sections);
                     var valueProp = header.GetType().GetProperty("Values");
                     var rawValues = (List<string>)header.GetType().GetProperty("RawValues").GetValue(header);
@@ -42,21 +42,49 @@ namespace DXFParser
                         var varNameIndex = currentVarIndex + 1;
 
                         var varName = rawValues[varNameIndex];
-                        var varValues = new List<string>();
+                        var varRawValues = new List<string>();
                         if (!nextVarIndex.Equals(-1))
                         {
-                            varValues = rawValues.GetRange(varNameIndex + 1, nextVarIndex - varNameIndex - 1);
+                            varRawValues = rawValues.GetRange(varNameIndex + 1, nextVarIndex - varNameIndex - 1);
                         }
                         else
                         {
-                            varValues = rawValues.GetRange(varNameIndex + 1, rawValues.Count - varNameIndex- 1);
+                            varRawValues = rawValues.GetRange(varNameIndex + 1, rawValues.Count - varNameIndex- 1);
                         }
+
+                        var varValues = new List<BaseProp>();
+
+                        for (int page = 0; page < Math.Floor((decimal)varRawValues.Count /2) + 1; page++)
+                        {
+                            var rel = varRawValues.Skip(page * 2).Take(2).ToList();
+                            if (rel.Any())
+                            {
+                                varValues.Add(new BaseProp
+                                {
+                                    Type = GetPropType(rel[0]),
+                                    Value = rel[1]
+                                });
+                            }
+                        }
+
                         dict[varName] = varValues;
                     }
 
                     valueProp.SetValue(header, dict);
                 }
             }
+        }
+
+        private static PropType GetPropType(string rawGroupCode)
+        {
+            var groupCode = Convert.ToInt32(rawGroupCode);
+
+            if (TypeGroupCodes.STRING.Any(x => x.Item1 <= groupCode && groupCode <= x.Item2))
+            {
+                return PropType.STRING;
+            }
+
+            return PropType.UNDEFINED;
         }
 
         private static DXFObject GetSections(List<string> file)
@@ -120,6 +148,52 @@ namespace DXFParser
         }
     }
 
+    public static class TypeGroupCodes
+    {
+        public static List<Tuple<int, int>> STRING = new List<Tuple<int, int>>
+        {
+            /*
+             String (with the introduction of extended symbol names in AutoCAD 2000, 
+             the 255-character limit has been increased to 2049 single-byte characters 
+             not including the newline at the end of the line)
+             */
+            new Tuple<int, int>(0,9),            /*             String (255-character maximum; less for Unicode strings)            */            new Tuple<int, int>(100,100),
+
+            /*             String (255-character maximum; less for Unicode strings)            */
+            new Tuple<int, int>(102,102),
+
+            /*             String representing hexadecimal (hex) handle value            */
+            new Tuple<int, int>(105,105),
+
+            /*             Arbitrary text string            */
+            new Tuple<int, int>(300,309),
+
+            /*             String representing hex value of binary chun            */
+            new Tuple<int, int>(310,319),
+
+            /*             String representing hex handle value            */
+            new Tuple<int, int>(320,329),
+
+            /*             String representing hex object IDs            */
+            new Tuple<int, int>(330,369),
+
+            /*             String representing hex handle value            */
+            new Tuple<int, int>(410,419),
+
+            /*             String            */
+            new Tuple<int, int>(430,439),
+
+            /*             String            */
+            new Tuple<int, int>(470,479),
+
+            /*             String representing hex handle value            */
+            new Tuple<int, int>(480,481),
+
+            /*             String (same limits as indicated with 0-9 code range)            */
+            new Tuple<int, int>(1000,1009)
+        };
+    }
+
     internal class DXFObject
     {
         public BaseObject HEADER { get; set; }
@@ -145,6 +219,21 @@ namespace DXFParser
 
         public List<string> RawValues { get; set; }
 
-        public Dictionary<string, List<string>> Values { get; set; }
+        public Dictionary<string, List<BaseProp>> Values { get; set; }
+    }
+
+    internal class BaseProp
+    {
+        public PropType Type { get; set; }
+
+        public string Value { get; set; }
+    }
+
+    public enum PropType
+    {
+        UNDEFINED,
+        INT,
+        STRING,
+        DECIMAL
     }
 }
