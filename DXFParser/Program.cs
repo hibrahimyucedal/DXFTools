@@ -11,68 +11,59 @@ namespace DXFParser
         {
             var file = ReadFile("bos.dxf");
             var sections = GetSections(file);
-            ProcessSections(sections);
         }
 
-        private static void ProcessSections(DXFObject sections)
+        private static Dictionary<string, List<BaseDXFProp>> ProcessSection(string sectionName, List<string> rawValues)
         {
-            var props = sections.GetType().GetProperties();
-            foreach (var prop in props)
+            var dict = new Dictionary<string, List<BaseDXFProp>>();
+            if (sectionName.Equals(nameof(SectionType.HEADER)))
             {
-                if (prop.Name.Equals(nameof(DXFObject.HEADER)))
+                var varIndexes = new List<int>();
+                for (int i = 0; i < rawValues.Count; i++)
                 {
-                    var dict = new Dictionary<string, List<BaseProp>>();
-                    var header = prop.GetValue(sections);
-                    var valueProp = header.GetType().GetProperty("Values");
-                    var rawValues = (List<string>)header.GetType().GetProperty("RawValues").GetValue(header);
-
-                    var varIndexes = new List<int>();
-                    for (int i = 0; i < rawValues.Count; i++)
+                    if (rawValues[i].Equals("9"))
                     {
-                        if (rawValues[i].Equals("9"))
-                        {
-                            varIndexes.Add(i);
-                        }
+                        varIndexes.Add(i);
+                    }
+                }
+
+                for (int i = 0; i < varIndexes.Count; i++)
+                {
+                    var currentVarIndex = varIndexes[i];
+                    var nextVarIndex = varIndexes.Count == i + 1 ? -1 : varIndexes[i + 1];
+                    var varNameIndex = currentVarIndex + 1;
+
+                    var varName = rawValues[varNameIndex];
+                    var varRawValues = new List<string>();
+                    if (!nextVarIndex.Equals(-1))
+                    {
+                        varRawValues = rawValues.GetRange(varNameIndex + 1, nextVarIndex - varNameIndex - 1);
+                    }
+                    else
+                    {
+                        varRawValues = rawValues.GetRange(varNameIndex + 1, rawValues.Count - varNameIndex - 1);
                     }
 
-                    for (int i = 0; i < varIndexes.Count; i++)
+                    var varValues = new List<BaseDXFProp>();
+
+                    for (int page = 0; page < Math.Floor((decimal)varRawValues.Count / 2) + 1; page++)
                     {
-                        var currentVarIndex = varIndexes[i];
-                        var nextVarIndex = varIndexes.Count == i+1 ? -1: varIndexes[i + 1];
-                        var varNameIndex = currentVarIndex + 1;
-
-                        var varName = rawValues[varNameIndex];
-                        var varRawValues = new List<string>();
-                        if (!nextVarIndex.Equals(-1))
+                        var rel = varRawValues.Skip(page * 2).Take(2).ToList();
+                        if (rel.Any())
                         {
-                            varRawValues = rawValues.GetRange(varNameIndex + 1, nextVarIndex - varNameIndex - 1);
-                        }
-                        else
-                        {
-                            varRawValues = rawValues.GetRange(varNameIndex + 1, rawValues.Count - varNameIndex- 1);
-                        }
-
-                        var varValues = new List<BaseProp>();
-
-                        for (int page = 0; page < Math.Floor((decimal)varRawValues.Count /2) + 1; page++)
-                        {
-                            var rel = varRawValues.Skip(page * 2).Take(2).ToList();
-                            if (rel.Any())
+                            varValues.Add(new BaseDXFProp
                             {
-                                varValues.Add(new BaseProp
-                                {
-                                    Type = GetPropType(rel[0]),
-                                    Value = rel[1]
-                                });
-                            }
+                                Type = GetPropType(rel[0]),
+                                Value = rel[1]
+                            });
                         }
-
-                        dict[varName] = varValues;
                     }
 
-                    valueProp.SetValue(header, dict);
+                    dict[varName] = varValues;
                 }
             }
+
+            return dict;
         }
 
         private static PropType GetPropType(string rawGroupCode)
@@ -87,11 +78,9 @@ namespace DXFParser
             return PropType.UNDEFINED;
         }
 
-        private static DXFObject GetSections(List<string> file)
+        private static Dictionary<string, Dictionary<string, List<BaseDXFProp>>> GetSections(List<string> file)
         {
-            var result = new DXFObject();
-            var props = result.GetType().GetProperties();
-            var propNames = props.Select(x => x.Name);
+            var result = new Dictionary<string, Dictionary<string, List<BaseDXFProp>>>();
 
             var sectionNameStartIndexDict = new Dictionary<string, int>();
             var sectionEndIndexes = new List<int>();
@@ -115,17 +104,11 @@ namespace DXFParser
 
             foreach (var sectionStart in sectionNameStartIndexDict)
             {
-                if (propNames.Contains(sectionStart.Key))
-                {
-                    props.First(x => x.Name.Equals(sectionStart.Key)).SetValue(result, new BaseObject
-                    {
-                        StartIndex = sectionStart.Value,
-                        EndIndex = sectionEndIndexes.First(),
-                        RawValues = file.GetRange(sectionStart.Value, sectionEndIndexes.First() - sectionStart.Value)
-                    });
+                var sectionName = sectionStart.Key;
+                var sectionValue = file.GetRange(sectionStart.Value, sectionEndIndexes.First() - sectionStart.Value);
 
-                    sectionEndIndexes.RemoveAt(0);
-                }
+                result[sectionStart.Key] = ProcessSection(sectionName, sectionValue);
+                sectionEndIndexes.RemoveAt(0);
             }
 
             return result;
@@ -194,35 +177,7 @@ namespace DXFParser
         };
     }
 
-    internal class DXFObject
-    {
-        public BaseObject HEADER { get; set; }
-
-        public BaseObject CLASSES { get; set; }
-
-        public BaseObject TABLES { get; set; }
-
-        public BaseObject BLOCKS { get; set; }
-
-        public BaseObject ENTITIES { get; set; }
-
-        public BaseObject ACDSDATA { get; set; }
-
-        public BaseObject OBJECTS { get; set; }
-    }
-
-    internal class BaseObject
-    {
-        public int StartIndex { get; set; }
-
-        public int EndIndex { get; set; }
-
-        public List<string> RawValues { get; set; }
-
-        public Dictionary<string, List<BaseProp>> Values { get; set; }
-    }
-
-    internal class BaseProp
+    public class BaseDXFProp
     {
         public PropType Type { get; set; }
 
@@ -235,5 +190,17 @@ namespace DXFParser
         INT,
         STRING,
         DECIMAL
+    }
+
+    public enum SectionType
+    {
+        UNDEFINED,
+        HEADER,
+        CLASSES,
+        TABLES,
+        BLOCKS,
+        ENTITIES,
+        ACDSDATA,
+        OBJECTS
     }
 }
